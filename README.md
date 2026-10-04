@@ -58,7 +58,7 @@ The previous README reported mean correlation 0.88 and "peak" 0.98 on 100 held-o
 ```
 ├── train.py                  # Train V1/V2/V3 and evaluate on held-out compounds
 ├── blind_test.py             # Novel-compound evaluation with baselines
-├── MixNet_V3_Colab.ipynb     # Colab runner
+├── MixNet_Colab.ipynb        # One-click Colab run (setup, tests, training, blind test)
 ├── demo.py                   # CPU demonstration
 ├── tests/                    # pytest suite
 ├── NMR_PROJECT_FINAL_PACKAGE/# 30 component spectra and the legacy fixed datasets
