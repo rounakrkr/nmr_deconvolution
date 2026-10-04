@@ -29,10 +29,22 @@ def library():
 
 
 def test_split_disjoint():
-    s = split_compounds(30, 4, 6, seed=1)
+    s = split_compounds(30, 6, 7, seed=1)
     all_ids = np.concatenate([s["train"], s["val"], s["test"]])
     assert len(set(all_ids)) == 30
     assert not set(s["test"]) & set(s["train"])
+
+
+def test_split_rejects_pools_smaller_than_mixture():
+    with pytest.raises(ValueError):
+        split_compounds(30, 4, 6)
+    with pytest.raises(ValueError):
+        split_compounds(12, 5, 5)
+
+
+def test_default_split_pools_can_sample():
+    s = split_compounds(30)
+    assert min(len(v) for v in s.values()) >= 5
 
 
 def test_sampler_deterministic_and_consistent(library):
