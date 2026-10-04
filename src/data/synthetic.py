@@ -18,10 +18,14 @@ def load_library(data_dir: str) -> Tuple[List[str], np.ndarray]:
 
 
 def split_compounds(
-    num_compounds: int, n_val: int = 4, n_test: int = 6, seed: int = 0
+    num_compounds: int,
+    n_val: int = 6,
+    n_test: int = 7,
+    seed: int = 0,
+    min_pool: int = NUM_COMPOUNDS,
 ) -> Dict[str, np.ndarray]:
-    if n_val + n_test >= num_compounds:
-        raise ValueError("val+test compounds must be fewer than the library size")
+    if min(n_val, n_test) < min_pool or num_compounds - n_val - n_test < min_pool:
+        raise ValueError(f"every split needs at least {min_pool} compounds to draw a mixture from")
     perm = np.random.RandomState(seed).permutation(num_compounds)
     return {
         "test": np.sort(perm[:n_test]),

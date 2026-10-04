@@ -35,7 +35,7 @@ For the full theoretical formulation, mathematical proofs, experimental data, an
 
 ## 📊 Evaluation Protocol
 
-- **Data (`src/data/synthetic.py`):** the 30 library spectra are split into disjoint train / val / test compound pools (20 / 4 / 6). Each sample draws 5 compounds from one pool in random slot order and mixes them linearly with 20 Dirichlet concentration vectors. Inputs and targets share one scale, so `A @ S == X` holds exactly.
+- **Data (`src/data/synthetic.py`):** the 30 library spectra are split into disjoint train / val / test compound pools (17 / 6 / 7). Each sample draws 5 compounds from one pool in random slot order and mixes them linearly with 20 Dirichlet concentration vectors. Inputs and targets share one scale, so `A @ S == X` holds exactly.
 - **Loss (`src/training/pit.py`):** Hungarian permutation-invariant MSE plus reconstruction consistency.
 - **Metric:** Hungarian-matched Pearson correlation per source, reported with 95% intervals alongside two baselines: rank-5 NMF and the mean mixture spectrum.
 - **Blind test (`blind_test.py`):** random Lorentzian multiplets with realistic J-couplings, repeated over many seeds.
@@ -44,8 +44,8 @@ For the full theoretical formulation, mathematical proofs, experimental data, an
 
 | Method | Held-out compounds | Novel Lorentzian compounds |
 | :--- | :--- | :--- |
-| NMF (rank 5) | 0.974 ± 0.018 (n=10) | 0.993 (1 seed) |
-| Mean mixture spectrum | 0.507 (n=10) | n/a |
+| NMF (rank 5) | 0.974 ± 0.018 (n=10, earlier 6-compound test pool) | 0.993 (1 seed) |
+| Mean mixture spectrum | 0.507 (n=10, earlier 6-compound test pool) | n/a |
 
 ### Legacy results (original protocol, not comparable)
 
