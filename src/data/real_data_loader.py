@@ -172,7 +172,8 @@ if __name__ == '__main__':
     import os, sys
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-    CSV_PATH = r"c:\Extra Programs\Files\BioTech\continuous_simulated_spectra_without_peak_shift.csv"
+    REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    CSV_PATH = os.path.join(REPO_ROOT, "continuous_simulated_spectra_without_peak_shift.csv")
 
     print("Loading CSV...")
     data = load_mixture_csv(CSV_PATH, target_length=16384)
@@ -211,7 +212,7 @@ if __name__ == '__main__':
     for ax in axes:
         ax.grid(True, alpha=0.3)
 
-    save_path = r"c:\Extra Programs\Files\BioTech\results\real_data_preview.png"
+    save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "results", "real_data_preview.png")
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')

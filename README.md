@@ -18,9 +18,7 @@ Where:
 - $S \in \mathbb{R}_{+}^{N \times L}$: Unknown pure constituent compound spectra.
 
 ### The Scientific Challenge: Dictionary Memorization vs True Discovery
-Most existing machine learning methods for NMR mixture analysis memorize a closed dictionary of known compounds. When evaluated on **known compounds**, our models achieve **98.4% Pearson correlation**. 
-
-However, in true scientific discovery, **unseen chemical compounds** (novel natural products, unexpected metabolites, reaction intermediates) are encountered. Our research focuses on engineering neural architectures that perform **true physical deconvolution** rather than spectral pattern matching.
+Neural separators trained on a fixed set of compounds can score well simply by memorizing the dictionary. In true scientific discovery, **unseen chemical compounds** (novel natural products, unexpected metabolites, reaction intermediates) are encountered. This repository evaluates separation on compounds held out from training and compares every network against classical baselines such as NMF.
 
 For the full theoretical formulation, mathematical proofs, experimental data, and root-cause analysis, read:
 👉 **[Full Scientific Research Paper Notes](RESEARCH_PAPER_NOTES.md)**
@@ -29,113 +27,70 @@ For the full theoretical formulation, mathematical proofs, experimental data, an
 
 ## 🏛️ Architectures Implemented
 
-1. **MixNet V1 (`src/models/unet1d.py`):** 
-   - 1D U-Net with 5-stage hierarchical encoder-decoder and multi-scale skip connections.
-   - Input: $20$ mixtures $\times 16,384$ channels $\rightarrow$ Output: $5$ constituent compounds.
-   - Parameters: **7,113,733**.
-2. **MixNet V2 (`src/models/unet1d_v2.py`):** 
-   - MixNet backbone augmented with a multi-head self-attention transformer at the bottleneck latent space.
-   - Parameters: **11,320,325**.
-3. **MixNet V3 (`src/models/unet1d_v3.py`):** 
-   - **True Cross-Mixture Architecture:** Each mixture is independently encoded via a shared weight encoder. A cross-mixture attention transformer then attends across all $M=20$ mixture instances at each spatial token to track co-varying resonance peaks across sample conditions.
-   - Parameters: **16,827,717**.
+1. **MixNet V1 (`src/models/unet1d.py`):** 1D U-Net, 5-stage encoder-decoder with skip connections. Input: 20 mixtures × 16,384 points as channels → output: 5 compounds. 7,113,733 parameters.
+2. **MixNet V2 (`src/models/unet1d_v2.py`):** V1 plus self-attention over the 16 bottleneck spectral positions. 11,320,325 parameters. No attention operates across mixtures.
+3. **MixNet V3 (`src/models/unet1d_v3.py`):** shared per-mixture encoder (all mixtures batched), transformer attention across the mixture axis at each bottleneck position, then mean/max pooling over mixtures, so the output does not depend on mixture order. The parameter count is printed by `train.py`.
 
 ---
 
-## 📊 Benchmark Results
+## 📊 Evaluation Protocol
 
-### 1. Closed-World Evaluation (Known Library Compounds)
-Evaluated on 100 held-out test datasets ($2,000$ mixture combinations):
+- **Data (`src/data/synthetic.py`):** the 30 library spectra are split into disjoint train / val / test compound pools (20 / 4 / 6). Each sample draws 5 compounds from one pool in random slot order and mixes them linearly with 20 Dirichlet concentration vectors. Inputs and targets share one scale, so `A @ S == X` holds exactly.
+- **Loss (`src/training/pit.py`):** Hungarian permutation-invariant MSE plus reconstruction consistency.
+- **Metric:** Hungarian-matched Pearson correlation per source, reported with 95% intervals alongside two baselines: rank-5 NMF and the mean mixture spectrum.
+- **Blind test (`blind_test.py`):** random Lorentzian multiplets with realistic J-couplings, repeated over many seeds.
 
-| Model | Test Loss | Mean Correlation | Peak Correlation |
-| :--- | :--- | :--- | :--- |
-| **MixNet V1** | 0.002245 | **0.8816** | **0.9842 (98.4%)** |
-| **MixNet V2** | 0.002138 | **0.8904** | **0.9861 (98.6%)** |
-| **MixNet V3** | **0.002217** | **0.8872** | **0.9839 (98.4%)** |
+### Measured baselines (no training)
 
-### 2. Out-of-Distribution Blind Evaluation (Completely Unseen Molecules)
-Evaluated on completely synthetic novel molecules with non-overlapping chemical shifts under 120-permutation Hungarian alignment:
+| Method | Held-out compounds | Novel Lorentzian compounds |
+| :--- | :--- | :--- |
+| NMF (rank 5) | 0.974 ± 0.018 (n=10) | 0.993 (1 seed) |
+| Mean mixture spectrum | 0.507 (n=10) | n/a |
 
-| Model | Unseen Blind Correlation | Best Compound | Generalization Gap |
-| :--- | :--- | :--- | :--- |
-| **MixNet V1** | **0.5203 (52.0%)** | 0.6502 | $\Delta = -36.1\%$ |
-| **MixNet V2** | **0.4764 (47.6%)** | 0.5823 | $\Delta = -41.4\%$ |
-| **MixNet V3** | **0.5133 (51.3%)** | 0.6367 | $\Delta = -37.4\%$ |
+### Legacy results (original protocol, not comparable)
 
-*Conclusion:* Standard convolutional autoencoders suffer from static slot binding and localized pooling that attenuates point-to-point intensity covariance. Next-generation research requires permutation-invariant matching losses and covariance graph priors.
+The previous README reported mean correlation 0.88 and "peak" 0.98 on 100 held-out datasets, and 0.48-0.52 on a single blind set. Those used fixed-slot MSE on a dataset whose slots 1 and 2 are always Ethanol and Methanol; a per-slot training-mean template that ignores the input already scores mean 0.613 on that split. The blind-test scores are confirmed by training logs (V1 0.5203, V2 0.4764, V3 0.5133), but a trivial output reaches 0.43 and untrained NMF reaches 0.99 on the same set. MixNet results under the current protocol are produced by `train.py` and written to `results/`.
 
 ---
 
 ## 📁 Repository Structure
 
 ```
-├── README.md                              # Project overview (this file)
-├── RESEARCH_PAPER_NOTES.md                 # Full research report & manuscript draft
-├── MixNet_V3_Colab.ipynb                   # Self-contained Google Colab GPU training notebook
-├── train_real.py                           # Training engine for MixNet V1
-├── train_v2.py                             # Training engine for MixNet V2
-├── train_v3.py                             # Training engine for MixNet V3
-├── demo.py                                 # Interactive CPU demonstration script
-├── blind_test_both.py                      # Unseen molecule out-of-distribution evaluation suite
-├── mixture_metadata.csv                    # Ground-truth composition metadata (20,000 rows)
-├── continuous_simulated_spectra...csv       # High-resolution reference spectrum
-├── NMR_Mixtures_REFERENCE_BLIND.xlsx       # Blind test protocol specifications
-├── docs/                                   # Research documentation and literature guides
-│   ├── literature_review_papers_deep_guide.md # Analysis of 4 foundational NMR-ML papers
-│   ├── mathematical_formulation_bss.md        # Mathematical foundations of BSS & NMF
-│   ├── paper_methodology_flowcharts.md        # Architecture & process flowcharts
-│   └── research_qa_defense_prep.md            # Comprehensive research defense Q&A
+├── train.py                  # Train V1/V2/V3 and evaluate on held-out compounds
+├── blind_test.py             # Novel-compound evaluation with baselines
+├── MixNet_V3_Colab.ipynb     # Colab runner
+├── demo.py                   # CPU demonstration
+├── tests/                    # pytest suite
+├── NMR_PROJECT_FINAL_PACKAGE/# 30 component spectra and the legacy fixed datasets
+├── docs/                     # Literature and methodology notes
+├── RESEARCH_PAPER_NOTES.md   # Research notes
 └── src/
-    ├── configs/                            # Configuration files (YAML)
-    ├── data/                               # Data loaders and dataset definitions
-    ├── models/                             # MixNet neural architectures and blocks
-    ├── training/                           # Losses (dual spectral + recon) and metrics
-    └── evaluation/                         # Evaluation and visualization utilities
+    ├── data/                 # synthetic.py (sampler), torch_dataset.py
+    ├── models/               # blocks, V1, V2, V3, factory
+    ├── training/             # pit.py (loss), losses.py, metrics.py
+    └── evaluation/           # baselines.py, benchmark.py, visualize.py
 ```
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Environment Setup
 ```bash
 git clone https://github.com/rounakrkr/nmr_deconvolution.git
 cd nmr_deconvolution
-python -m venv venv
-# On Windows:
-.\venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
-
+python -m venv venv && source venv/bin/activate   # Windows: .\venv\Scripts\activate
 pip install -r requirements.txt
-```
 
-### 2. Run Interactive Demonstration
-```bash
-python demo.py
-```
-
-### 3. Train Models Locally or on Colab
-- **Local CPU/GPU Training (V1):**
-  ```bash
-  python train_real.py --epochs 100 --patience 15
-  ```
-- **Local CPU/GPU Training (V3 with Cross-Mixture Attention):**
-  ```bash
-  python train_v3.py --epochs 60 --patience 15
-  ```
-- **Google Colab Cloud GPU:** Open `MixNet_V3_Colab.ipynb` directly in Colab with T4 GPU runtime enabled.
-
-### 4. Run Unseen Compound Blind Evaluation
-```bash
-python blind_test_both.py
+pytest -q tests
+python train.py --model v1 --epochs 60 --patience 15
+python train.py --model v3 --epochs 60 --batch-size 2
+python blind_test.py --checkpoints checkpoints/best_v1.pth checkpoints/best_v3.pth --seeds 30
 ```
 
 ---
 
 ## 📜 Citation & License
-This research codebase is released under the **MIT License**.
-If utilizing this work or benchmark in academic publications, please cite:
+Released under the **MIT License**.
 ```bibtex
 @misc{kumar2026nmrdeconvolution,
   author = {Rounak Kumar and Collaborators},
