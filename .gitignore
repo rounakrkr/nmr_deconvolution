@@ -1,0 +1,41 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.so
+
+# Model checkpoints (large binary model weights)
+checkpoints/
+*.pth
+*.pt
+*.pkl
+
+# External cloned repositories
+repos/
+
+# Old local generator data
+data/dummy/
+data/synthetic/
+
+# Large archive files exceeding GitHub limit (>100MB)
+*.zip
+*.tar.gz
+*.7z
+
+# Temporary / cache files
+.pytest_cache/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

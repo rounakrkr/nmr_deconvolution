@@ -1,0 +1,66 @@
+# ============================================================
+# MixNet — General-Purpose NMR Spectral Decomposition Config
+# Domain-agnostic blind source separation
+# ============================================================
+
+# --- Data ---
+data:
+  spectral_length: 16384         # 16k points per spectrum (sir confirmed). Using 16384 (=16×1024) for clean pooling.
+  ppm_range: [0.0, 10.0]         # Chemical shift range (ppm) — sir confirmed: 0 to 10
+  num_compounds_range: [2, 10]   # Range of N (compounds per set)
+  num_mixtures_range_offset: [3, 15]  # M = N + offset (always more mixtures than compounds)
+  peaks_per_compound_range: [1, 8]    # Number of Gaussian peaks per compound
+  noise_std: 0.005               # Gaussian noise standard deviation
+
+# --- Dummy Data Generator ---
+dummy:
+  num_train_samples: 5000        # Training samples
+  num_val_samples: 1000          # Validation samples
+  num_test_samples: 500          # Test samples
+  save_dir: "data/dummy"
+
+# --- Model ---
+model:
+  name: "MixNet"
+  # Encoder channel progression
+  encoder_channels: [64, 128, 256, 256, 512]
+  # Decoder mirrors encoder (auto-computed)
+  bottleneck_channels: 512
+  kernel_size: 3
+  pool_kernel: 4
+  pool_stride: 4
+  use_batch_norm: true
+  dropout: 0.0                   # No dropout initially
+  activation: "relu"
+  output_activation: "softplus"  # Ensures non-negative output (NMR spectra >= 0)
+
+# --- Training ---
+training:
+  batch_size: 16
+  epochs: 200
+  learning_rate: 0.0001
+  weight_decay: 0.0001           # AdamW regularization
+  scheduler: "cosine"            # Cosine annealing LR
+  warmup_epochs: 5
+  
+  # Loss weights
+  lambda_spectral: 1.0           # Weight for individual spectrum MSE loss
+  lambda_reconstruction: 0.5     # Weight for mixture reconstruction loss
+  
+  # Early stopping
+  patience: 20                   # Stop if no improvement for 20 epochs
+  min_delta: 0.0001              # Minimum improvement threshold
+
+  # Checkpointing
+  checkpoint_dir: "checkpoints"
+  save_best_only: true
+
+# --- Evaluation ---
+evaluation:
+  results_dir: "results"
+  plot_num_samples: 5            # Number of samples to plot
+  metrics: ["mse", "pearson_r", "reconstruction_error", "peak_position_error"]
+
+# --- Device ---
+device: "auto"                   # "auto", "cuda", "cpu"
+seed: 42
