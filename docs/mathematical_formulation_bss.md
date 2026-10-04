@@ -7,8 +7,8 @@
 
 ## 1. SENNet — Complete Architecture Analysis
 
-📁 **Repo**: [repos/SENNet](file:///c:/Extra%20Programs/Files/BioTech/repos/SENNet)
-📄 **Model Code**: [models_baseline_0711.py](file:///c:/Extra%20Programs/Files/BioTech/repos/SENNet/models_baseline_0711.py)
+📁 **Repo**: [repos/SENNet](local checkout, not included)
+📄 **Model Code**: [models_baseline_0711.py](local checkout, not included)
 
 ### 1.1 Architecture Overview
 
@@ -99,7 +99,7 @@ graph TD
 
 ## 2. SENNet — Training Data Generation
 
-📄 **Notebook**: [training_dataset.ipynb](file:///c:/Extra%20Programs/Files/BioTech/repos/SENNet/training_dataset.ipynb)
+📄 **Notebook**: [training_dataset.ipynb](local checkout, not included)
 
 ### 2.1 Mathematical Model
 
@@ -173,7 +173,7 @@ small_spectrum = spectrum - macro_spectrum  # subtraction = small molecules
 
 ## 3. NMR-Onion — Peak Physics & Lineshape Models
 
-📁 **Repo**: [repos/NMR-Onion](file:///c:/Extra%20Programs/Files/BioTech/repos/NMR-Onion)
+📁 **Repo**: [repos/NMR-Onion](local checkout, not included)
 
 ### 3.1 Three Peak Lineshape Models
 
@@ -326,7 +326,7 @@ SENNet (current):              OUR MODEL (needed):
   └─────────┘                    └─────────┘
 ```
 
-### 5.4 Critical Design Decisions (to discuss with Sir)
+### 5.4 Critical Design Decisions (open design questions)
 
 > [!IMPORTANT]
 > **Question 1**: Is the number of compounds N known in advance, or must the model also determine N?
@@ -346,4 +346,4 @@ SENNet (current):              OUR MODEL (needed):
 > [!WARNING]
 > **Question 4**: How do we validate without ground truth?
 > - Real mixtures → we don't know the true individual spectra
-> - Options: (a) use synthetic test data, (b) use controlled lab mixtures where sir KNOWS the components, (c) reconstruct the mixture from outputs and compare
+> - Options: (a) use synthetic test data, (b) use controlled lab mixtures where the components are known, (c) reconstruct the mixture from outputs and compare

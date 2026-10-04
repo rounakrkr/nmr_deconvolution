@@ -40,9 +40,9 @@ To develop, validate, and stress-test architectures under ground-truth condition
 - **Total Datasets:** 1,000 distinct datasets (`dataset_0001` to `dataset_1000`).
 - **Mixtures per Dataset:** $M = 20$ mixture spectra per dataset with varying concentration vectors $A_i$.
 - **Total Observed Spectra:** 20,000 mixture spectra ($20 \times 1,000$).
-- **Constituent Count:** $N = 5$ compounds randomly sampled per dataset from a library of 30 authentic organic chemical compounds.
+- **Constituent Count:** $N = 5$ compounds per dataset from a library of 30 synthetic compounds. The shipped 1,000 datasets are the first 1,000 lexicographic 5-combinations of the library, so Ethanol and Methanol occupy slots 1 and 2 in every dataset. The current protocol (`src/data/synthetic.py`) instead samples random subsets in random slot order from disjoint train/val/test compound pools.
 - **Spectral Resolution:** $L = 16,384$ data points over the range 10.0 ppm to 0.0 ppm ($1.6384 \text{ points/Hz}$ at standard field).
-- **Physical Fidelity:** Explicit simulation of spin-spin $J$-coupling splitting multiplets (singlets, doublets, triplets, quartets, broad resonances) with Lorentzian/Voigt linewidths ($1.5 - 8.0 \text{ Hz}$).
+- **Physical Fidelity:** Noise-free synthetic spectra with explicit simulation of spin-spin $J$-coupling splitting multiplets (singlets, doublets, triplets, quartets, broad resonances) with Lorentzian/Voigt linewidths ($1.5 - 8.0 \text{ Hz}$).
 - **Conservation Law:** Strict simplex concentration constraint: $\sum_{k=1}^5 \text{fraction}_k = 1.000000$.
 
 ### 2.2 Mathematical Verification & Data Integrity
@@ -116,8 +116,8 @@ Where:
 
 ## 4. Experimental Results & Discoveries (CURRENT FINDINGS)
 
-### 4.1 Evaluation Benchmark 1: Closed-World (Known Compounds)
-Evaluated on 100 held-out test datasets ($2,000$ unseen mixture combinations formed from the 30 chemical library compounds):
+### 4.1 Legacy Protocol 1: Closed-World (Known Compounds, fixed slot order)
+These numbers come from the original fixed-slot-MSE protocol and are not comparable with the current held-out-compound benchmark. Evaluated on 100 held-out test datasets ($2,000$ unseen mixture combinations formed from the 30 chemical library compounds):
 
 | Model | Parameters | Training Time | Test Loss | Mean Correlation | Max Correlation |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -125,9 +125,9 @@ Evaluated on 100 held-out test datasets ($2,000$ unseen mixture combinations for
 | **MixNet V2** (Bottleneck Attn) | 11,320,325 | 1.8 hrs (CPU) | 0.002138 | **0.8904** | **0.9861 (98.6%)** |
 | **MixNet V3** (Cross-Mixture) | 16,827,717 | 1.4 hrs (T4 GPU) | **0.002217** | **0.8872** | **0.9839 (98.4%)** |
 
-**Observation:** All three networks master the closed-world task with near-zero reconstruction and spectral loss. On known compounds, individual predictions regularly exceed 98% Pearson correlation.
+**Caveats (audit):** In this protocol slots 1 and 2 are constant across all datasets, and a per-slot training-mean template that ignores the input scores mean correlation 0.613 with maximum 1.0 on the same split. The V3 test-loss entry equals its best validation loss. Per-mixture max normalization made the reconstruction term inconsistent (its floor with perfect predictions is 0.0038). Differences between V1, V2 and V3 are within epoch-to-epoch validation noise (0.0022-0.0029).
 
-### 4.2 Evaluation Benchmark 2: Open-World (Completely Unseen Molecules)
+### 4.2 Legacy Protocol 2: Open-World (Unseen Molecules, single set)
 To evaluate true scientific deconvolution, we constructed an out-of-distribution blind test:
 - 5 synthetic molecules with novel chemical shifts (e.g., resonances at 0.85, 1.55, 2.75, 4.55, 6.85, 7.45, 8.20, 9.20 ppm) never seen during training.
 - 20 mixture spectra generated via random Dirichlet mixing ($A \in \Delta^4$).
@@ -138,6 +138,8 @@ To evaluate true scientific deconvolution, we constructed an out-of-distribution
 | **MixNet V1** | **0.5203 (52.0%)** | 0.6502 (Comp A) | 0.4581 (Comp B) | $\Delta = -36.1\%$ |
 | **MixNet V2** | **0.4764 (47.6%)** | 0.5823 (Comp C) | 0.4210 (Comp D) | $\Delta = -41.4\%$ |
 | **MixNet V3** | **0.5133 (51.3%)** | 0.6367 (Comp A) | 0.3806 (Comp D) | $\Delta = -37.4\%$ |
+
+**Baselines on the same blind set (measured):** rank-5 NMF with no training reaches 0.99 matched correlation; an output of the mean mixture spectrum reaches 0.43. The multiplet generator in the legacy script spaced lines 0.43 ppm apart and used a broader Gaussian lineshape than training, so the set also confounds novelty with lineshape shift. `blind_test.py` replaces it (Lorentzian multiplets, 5-9 Hz couplings at 400 MHz, 30 seeds, 95% intervals, NMF and mean-spectrum baselines).
 
 ---
 
@@ -185,7 +187,7 @@ To publish a breakthrough paper in high-impact venues (Nature Communications / I
 ```
 
 ### 6.1 Proposed Experiments Matrix
-1. **Permutation-Invariant Loss (PIL):** Train MixNet with Hungarian bipartite matching loss. Expected outcome: forces the network to learn invariant spectral decomposition rather than slot-based memorization.
+1. **Permutation-Invariant Loss (PIL):** Implemented in `src/training/pit.py` (Hungarian matching). Retraining results under the new protocol are pending.
 2. **Covariance Pre-clustering + Neural Refinement:** Use statistical peak-picking and cross-sample correlation to generate initial compound masks, then use U-Net to reconstruct fine multiplet details.
 3. **Open-World Synthetic Benchmark Release:** Package and release this benchmark dataset for the scientific community to standardize machine learning evaluation on NMR blind deconvolution.
 
@@ -202,12 +204,10 @@ BioTech/
 ├── mixture_metadata.csv            # Ground truth metadata for 20,000 mixtures (4.1MB)
 ├── NMR_Mixtures_REFERENCE_BLIND... # Blind reference composition tables (1.7MB)
 ├── MixNet_V3_Colab.ipynb           # Cloud GPU training notebook for MixNet V3
-├── train_real.py                   # MixNet V1 training pipeline
-├── train_v2.py                     # MixNet V2 training pipeline
-├── train_v3.py                     # MixNet V3 training pipeline
+├── train.py                        # Training (V1/V2/V3), permutation-invariant loss, held-out-compound test
 ├── demo.py                         # Interactive CPU demonstration script
-├── test_integration.py             # Integration test suite
-├── blind_test_both.py              # Out-of-distribution unseen compound evaluation suite
+├── tests/                          # pytest suite
+├── blind_test.py                   # Novel-compound evaluation with NMF baselines
 ├── docs/                           # Research literature & methodology guides
 │   ├── literature_review_papers... # Deep review of 4 landmark NMR-ML papers
 │   ├── mathematical_formulation... # Comprehensive mathematical foundations of BSS

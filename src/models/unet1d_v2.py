@@ -1,6 +1,6 @@
 """
-MixNet V2 — With Cross-Mixture Attention at Bottleneck.
-Sir's idea: peaks from same compound have correlated intensities across mixtures.
+MixNet V2 — U-Net with self-attention across the 16 bottleneck spectral positions.
+The mixtures are stacked as input channels; no attention operates across mixtures (see V3).
 """
 import torch
 import torch.nn as nn
@@ -34,11 +34,10 @@ class BottleneckAttention(nn.Module):
 
 class MixNetV2(nn.Module):
     """
-    MixNet with Cross-Mixture Attention.
+    MixNet with bottleneck self-attention over spectral positions.
     
     Same U-Net backbone + Transformer attention at bottleneck.
-    The attention helps the model understand which spectral regions
-    are CORRELATED across mixtures (= belong to same compound).
+    The attention lets the 16 coarse spectral positions exchange information.
     """
     
     def __init__(self, in_channels=20, out_channels=5, 
