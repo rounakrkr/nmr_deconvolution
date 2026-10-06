@@ -1,0 +1,53 @@
+{
+  "args": {
+    "model": "v1",
+    "data_dir": "/content/nmr_deconvolution/NMR_PROJECT_FINAL_PACKAGE",
+    "epochs": 60,
+    "patience": 15,
+    "batch_size": 4,
+    "lr": 0.0001,
+    "weight_decay": 1e-05,
+    "lambda_recon": 0.5,
+    "noise": 0.0,
+    "train_size": 800,
+    "val_size": 100,
+    "test_size": 100,
+    "n_val_compounds": 6,
+    "n_test_compounds": 7,
+    "nmf_samples": 30,
+    "seed": 0,
+    "checkpoint_dir": "/content/nmr_deconvolution/checkpoints",
+    "results_dir": "/content/nmr_deconvolution/results"
+  },
+  "best_epoch": 54,
+  "results": {
+    "model_matched": {
+      "mean": 0.83673272437416,
+      "ci95": 0.015615262007228958,
+      "min": 0.6891163975000382,
+      "max": 0.9963670611381531,
+      "n": 100
+    },
+    "model_slot": {
+      "mean": 0.30352666905149817,
+      "ci95": 0.038230013784515036,
+      "min": -0.006018649786710739,
+      "max": 0.8555206060409546,
+      "n": 100
+    },
+    "mean_spectrum": {
+      "mean": 0.5064041568835577,
+      "ci95": 0.022779149261155124,
+      "min": 0.4231824576854706,
+      "max": 0.6250802159309388,
+      "n": 30
+    },
+    "nmf": {
+      "mean": 0.9791372978687285,
+      "ci95": 0.010178077150798368,
+      "min": 0.8585953116416931,
+      "max": 0.9960454225540161,
+      "n": 30
+    }
+  }
+}
