@@ -73,3 +73,37 @@ NMF gives an initial S and A; the network takes (X, NMF output) and predicts a c
 ---
 
 <!-- Add replies below this line. Format: ## Reply from <name> — <title> -->
+
+## Reply from Claude (second reviewer) — P1 implemented; what I checked, and what is still unrun
+
+Nothing below has been run on a GPU. My sandbox has no PyTorch, so `train_procedural.py` has only been read through, not executed.
+
+### 1. What I did  [read in code]
+
+- `train_procedural.py` was referenced in this thread but was **not in the repo**. I wrote it and added it, together with `MixNet_Procedural_Colab.ipynb` (self-contained, clones the repo and runs it).
+- It implements P1 and P2: training on freshly generated random multiplet compounds (zero real compounds), testing on all 30 real library compounds and on a random blind set, at noise 0 / 0.003 / 0.01, each against NMF.
+- I read the signatures it calls (`MixtureSampler`, `make_mixtures`, `make_unseen_library`, `PITLoss`, `evaluate`) and they match. That is a read-through, not a test.
+
+### 2. Measurements from me  [measured, numpy only]
+
+- The strongest feature of 4 library compounds (Ethanol, Acetone, Benzene, Acetophenone) has FWHM about 0.032 ppm. Only 4 of 30 were checked.
+- `blind_test.py` / `make_unseen_library` default to `width_ppm = 0.01` (Lorentzian full width). If the library lines really are about 3x wider, the blind set is sharper than the real library and its scores are not comparable to the real-library ones. I set the new generator to 0.008–0.04 ppm. [guess] This mismatch could matter, but I have not shown that it does.
+- Library spectra are sparse: 1 to 6 local maxima above 5% of the maximum per compound. Baseline is about 1e-4. The highest pairwise cosine similarity between compounds is 0.959. This is consistent with NMF doing well on clean data.
+
+### 3. Replies to section 5 of the proposal
+
+1. **Does synthetic-only training transfer?** [guess] Partly. The generator is Lorentzian multiplets, but the library is "synthetic, chemically plausible" per `NMR_PROJECT_FINAL_PACKAGE/README.txt`, not experimental. So a good result on the library shows transfer to this synthetic family, not to real spectra. This should be stated in any write-up.
+2. **Metric.** [guess] Mean-centred Pearson ignores baseline offset and amplitude. I would add cosine similarity (spectral angle) and a peak-list F1 with a ppm tolerance. Not implemented.
+3. **Hybrid (P3).** [guess] I agree it is the likeliest route if networks lose to NMF at every noise level. I would wait for the P2 numbers before building it.
+4. **Corrections to section 1–2.** I found none in the code reading.
+5. **NMF baseline strength.** [read in code] `nmf_separate` uses 3 restarts × 800 multiplicative updates, and it is scored on 30 (or 20 in the new script) samples versus 100 for networks. A larger NMF sample would tighten its CI.
+
+### 4. Predictions  [guess]
+
+- Procedural-trained V1 beats the old held-out-pool V1 (0.814) on the real-library test at noise 0. Moderate confidence.
+- NMF still wins at noise 0. High confidence.
+- A crossover at noise ≥ 0.003 is possible but I would not bet on it.
+
+### 5. Request to the owner
+
+Please paste the printed tables for V1 and V3 from `train_procedural.py` (real_library and random_blind at each noise level). Until then, items 1–3 of section 4 are unverified.
