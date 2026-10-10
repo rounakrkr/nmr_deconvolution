@@ -25,13 +25,14 @@ from src.data.synthetic import MixtureSampler, load_library, split_compounds
 from src.data.torch_dataset import SyntheticNMRDataset
 from src.evaluation.benchmark import draw, evaluate, format_table
 from src.models.factory import MODEL_NAMES, build_model
+from src.training.physics import add_physics_args, build_criterion, warmup_ramp
 from src.training.pit import PITLoss
 
 
 def run_epoch(model, loader, criterion, device, optimizer=None, grad_clip=1.0):
     training = optimizer is not None
     model.train(training)
-    totals = {"loss": 0.0, "spec": 0.0, "recon": 0.0}
+    totals = {}
     batches = 0
     with torch.set_grad_enabled(training):
         for batch in loader:
@@ -45,8 +46,8 @@ def run_epoch(model, loader, criterion, device, optimizer=None, grad_clip=1.0):
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                 optimizer.step()
-            for k in totals:
-                totals[k] += parts[k]
+            for k, v in parts.items():
+                totals[k] = totals.get(k, 0.0) + v
             batches += 1
     return {k: v / max(batches, 1) for k, v in totals.items()}
 
@@ -69,6 +70,7 @@ def main():
     p.add_argument("--n-test-compounds", type=int, default=7)
     p.add_argument("--nmf-samples", type=int, default=30)
     p.add_argument("--seed", type=int, default=0)
+    add_physics_args(p)
     p.add_argument("--checkpoint-dir", default=os.path.join(ROOT, "checkpoints"))
     p.add_argument("--results-dir", default=os.path.join(ROOT, "results"))
     args = p.parse_args()
@@ -90,7 +92,7 @@ def main():
     model = build_model(args.model).to(device)
     print(f"device={device} model={args.model} parameters={sum(q.numel() for q in model.parameters()):,}")
 
-    criterion = PITLoss(lambda_recon=args.lambda_recon)
+    criterion = build_criterion(args)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
@@ -102,7 +104,11 @@ def main():
     for epoch in range(args.epochs):
         t0 = time.time()
         train_set.set_epoch(epoch)
+        if hasattr(criterion, "set_ramp"):
+            criterion.set_ramp(warmup_ramp(epoch, args.physics_warmup_epochs))
         tr = run_epoch(model, train_loader, criterion, device, optimizer)
+        if hasattr(criterion, "set_ramp"):
+            criterion.set_ramp(1.0)  # validate at full physics weight: comparable across epochs, selects on the full objective
         va = run_epoch(model, val_loader, criterion, device)
         scheduler.step()
         improved = va["loss"] < best_val
@@ -116,7 +122,8 @@ def main():
         else:
             stale += 1
         print(
-            f"epoch {epoch + 1:>3}/{args.epochs} train {tr['loss']:.6f} (spec {tr['spec']:.6f} recon {tr['recon']:.6f}) "
+            f"epoch {epoch + 1:>3}/{args.epochs} train {tr['loss']:.6f} (spec {tr['spec']:.6f} recon {tr['recon']:.6f}"
+            f"{''.join(f' {k} {tr[k]:.5f}' for k in tr if k not in ('loss', 'spec', 'recon'))}) "
             f"val {va['loss']:.6f} lr {optimizer.param_groups[0]['lr']:.2e} {time.time() - t0:.0f}s "
             f"{'<< best' if improved else f'(stale {stale}/{args.patience})'}"
         )

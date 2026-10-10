@@ -22,12 +22,12 @@ from src.data.synthetic import (SPECTRAL_LENGTH, MixtureSampler, load_library, l
                                 make_mixtures, make_unseen_library)
 from src.evaluation.benchmark import draw, evaluate, format_table
 from src.models.factory import MODEL_NAMES, build_model
-from src.training.pit import PITLoss
+from src.training.physics import add_physics_args, build_criterion, warmup_ramp
 
 PPM = np.linspace(10.0, 0.0, SPECTRAL_LENGTH)
 
 
-def random_compound(rng: np.random.RandomState) -> np.ndarray:
+def random_compound(rng: np.random.RandomState, binomial: bool = False) -> np.ndarray:
     """One random compound: 1-6 multiplets, mixed linewidths, optional broad peak."""
     s = np.zeros(SPECTRAL_LENGTH)
     width = rng.uniform(0.008, 0.04)  # library lines are ~0.03 ppm wide
@@ -35,14 +35,15 @@ def random_compound(rng: np.random.RandomState) -> np.ndarray:
         s += lorentz_multiplet(
             PPM, center=rng.uniform(0.3, 9.7), n_lines=int(rng.choice([1, 1, 2, 3, 4, 5, 6])),
             j_hz=rng.uniform(4.0, 12.0), width_ppm=width * rng.uniform(0.7, 1.6),
-            height=rng.uniform(0.2, 1.0))
+            height=rng.uniform(0.2, 1.0), binomial=binomial)
     if rng.rand() < 0.25:  # broad exchangeable OH/NH-like peak
         s += lorentz_multiplet(PPM, rng.uniform(1.0, 8.0), 1, 0.0, rng.uniform(0.08, 0.3), rng.uniform(0.2, 0.8))
     return (s / s.max()).astype(np.float32)
 
 
 class ProceduralDataset(torch.utils.data.Dataset):
-    def __init__(self, length, noise_max=0.01, seed=0, n_comp=5, n_mix=20):
+    def __init__(self, length, noise_max=0.01, seed=0, n_comp=5, n_mix=20, binomial=False):
+        self.binomial = binomial
         self.length, self.noise_max, self.seed = length, noise_max, seed
         self.n_comp, self.n_mix, self.offset = n_comp, n_mix, 0
 
@@ -54,7 +55,7 @@ class ProceduralDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, i):
         rng = np.random.RandomState(self.seed * 1_000_003 + self.offset + i)
-        s = np.stack([random_compound(rng) for _ in range(self.n_comp)])
+        s = np.stack([random_compound(rng, self.binomial) for _ in range(self.n_comp)])
         noise = rng.uniform(0, self.noise_max) if rng.rand() < 0.7 else 0.0
         x, a = make_mixtures(s, rng, self.n_mix, noise_std=noise, alpha=float(rng.choice([0.5, 1.0, 2.0])))
         return {"mixtures": torch.from_numpy(x), "compounds": torch.from_numpy(s),
@@ -84,10 +85,10 @@ def real_library_samples(library, n, noise, seed):
     return draw(sampler, n)
 
 
-def blind_samples(n, noise):
+def blind_samples(n, noise, binomial=False):
     out = []
     for seed in range(n):
-        comp = make_unseen_library(5, seed=seed, width_ppm=0.02)
+        comp = make_unseen_library(5, seed=seed, width_ppm=0.02, binomial=binomial)
         x, a = make_mixtures(comp, np.random.RandomState(10_000 + seed), noise_std=noise)
         out.append({"mixtures": x, "compounds": comp, "concentrations": a})
     return out
@@ -109,6 +110,10 @@ def main():
     p.add_argument("--noise-levels", type=float, nargs="*", default=[0.0, 0.003, 0.01])
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--binomial-multiplets", action="store_true",
+                   help="opt-in: generate multiplets with Pascal-triangle line heights (default: flat, legacy)")
+    p.add_argument("--lambda-recon", type=float, default=0.5)
+    add_physics_args(p)
     p.add_argument("--checkpoint-dir", default=os.path.join(ROOT, "checkpoints"))
     p.add_argument("--results-dir", default=os.path.join(ROOT, "results"))
     args = p.parse_args()
@@ -118,14 +123,14 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     names, library = load_library(args.data_dir)
 
-    train_set = ProceduralDataset(args.samples_per_epoch, args.noise_max, seed=1)
-    val_set = ProceduralDataset(args.val_size, args.noise_max, seed=2)
+    train_set = ProceduralDataset(args.samples_per_epoch, args.noise_max, seed=1, binomial=args.binomial_multiplets)
+    val_set = ProceduralDataset(args.val_size, args.noise_max, seed=2, binomial=args.binomial_multiplets)
     tl = torch.utils.data.DataLoader(train_set, args.batch_size, shuffle=True, num_workers=args.num_workers)
     vl = torch.utils.data.DataLoader(val_set, args.batch_size, num_workers=args.num_workers)
 
     model = build_model(args.model).to(device)
     print(f"device={device} model={args.model} params={sum(q.numel() for q in model.parameters()):,}")
-    crit = PITLoss(lambda_recon=0.5)
+    crit = build_criterion(args)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
 
@@ -136,7 +141,11 @@ def main():
     for ep in range(args.epochs):
         t0 = time.time()
         train_set.set_epoch(ep)
+        if hasattr(crit, "set_ramp"):
+            crit.set_ramp(warmup_ramp(ep, args.physics_warmup_epochs))
         tr = run_epoch(model, tl, crit, device, opt)
+        if hasattr(crit, "set_ramp"):
+            crit.set_ramp(1.0)
         va = run_epoch(model, vl, crit, device)
         sched.step()
         imp = va < best
@@ -157,7 +166,7 @@ def main():
     report = {}
     for noise in args.noise_levels:
         for tag, samples in (("real_library", real_library_samples(library, args.test_size, noise, seed=7)),
-                             ("random_blind", blind_samples(args.test_size, noise))):
+                             ("random_blind", blind_samples(args.test_size, noise, args.binomial_multiplets))):
             res = evaluate(samples, model, device, nmf_samples=args.nmf_samples)
             report[f"{tag}_noise{noise}"] = res
             print(f"\n[{tag}] noise={noise}  (trained on 0 real compounds)")

@@ -22,10 +22,10 @@ from src.evaluation.benchmark import evaluate, format_table
 from src.models.factory import build_model
 
 
-def build_samples(seeds: int, noise: float):
+def build_samples(seeds: int, noise: float, binomial: bool = False):
     samples = []
     for seed in range(seeds):
-        compounds = make_unseen_library(5, seed=seed)
+        compounds = make_unseen_library(5, seed=seed, binomial=binomial)
         mixtures, conc = make_mixtures(compounds, np.random.RandomState(10_000 + seed), noise_std=noise)
         samples.append({"mixtures": mixtures, "compounds": compounds, "concentrations": conc})
     return samples
@@ -36,12 +36,13 @@ def main():
     p.add_argument("--checkpoints", nargs="*", default=[])
     p.add_argument("--seeds", type=int, default=30)
     p.add_argument("--noise", type=float, default=0.0)
+    p.add_argument("--binomial-multiplets", action="store_true", help="opt-in Pascal-weighted multiplets (default: legacy flat)")
     p.add_argument("--nmf-samples", type=int, default=30)
     p.add_argument("--output", default=os.path.join(ROOT, "results", "blind_test.json"))
     args = p.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    samples = build_samples(args.seeds, args.noise)
+    samples = build_samples(args.seeds, args.noise, args.binomial_multiplets)
     report = {}
 
     baselines = evaluate(samples, None, nmf_samples=args.nmf_samples)

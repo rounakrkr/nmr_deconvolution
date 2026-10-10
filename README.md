@@ -60,22 +60,55 @@ The previous README reported mean correlation 0.88 and "peak" 0.98 on 100 held-o
 
 ---
 
+---
+
+## ⚛️ Physics-Informed Loss & Ghost Peak Suppression
+
+To resolve **spurious / ghost peaks** caused by spectral bleed-through (identified in supervisor review), we formulate **`PhysicsPITLoss`** (`src/training/physics.py`), integrating domain physics directly into the objective:
+
+1. **Log-sum / L1 Sparsity (`--lambda-sparse`):** Penalizes low-amplitude baseline bleed-through heavily (23.8× more sensitive than MSE on small ghosts) while preserving true tall resonance peaks (Kopriva et al., *Anal. Chim. Acta*, 2009).
+2. **Baseline Total Variation (`--lambda-baseline-tv`):** Suppresses high-frequency baseline ripples and noise artifacts.
+3. **Linewidth Consistency (`--lambda-linewidth`):** Penalizes variance in peak linewidths (FWHM derived from apex curvature $\gamma = \sqrt{2s / -s''}$) within each pure component, enforcing uniform $T_2$ molecular tumbling.
+4. **Multiplet Symmetry & Pascal Ratios (`--lambda-multiplet`):** Enforces J-coupling symmetry and Pascal's triangle intensity ratios ($1:1$, $1:2:1$, $1:3:3:1$) on resolved peak multiplets.
+5. **Cross-Source Disjointness (`--lambda-disjoint`):** Penalizes simultaneous co-activation across predicted components at identical frequencies.
+
+### Ablation Framework (`ablation.py`)
+
+A rigorous, paired ablation framework evaluates ghost suppression on identical initialization seeds and test samples:
+```bash
+# Run 3-arm ablation (PIT baseline vs Physics-PIT vs GT baseline control)
+python ablation.py --model v1 --epochs 40 --train-size 400
+
+# Multi-seed ablation with single-term isolations
+python ablation.py --model v1 --seeds 0 1 2 --arms pit physics gt_baseline sparse_only tv_only
+```
+
+Metrics tracked (`src/evaluation/ghost.py`):
+- **Ghost-mass fraction:** Fraction of predicted spectral energy located on the ground-truth flat baseline (floor ~0.04 due to Lorentzian tails).
+- **Peak Precision, Recall, F1:** Peak list detection accuracy under tolerance ($\pm 0.015$ ppm).
+- **Hungarian-matched Pearson Correlation ($r$):** Overall spectral profile fidelity.
+
+---
+
 ## 📁 Repository Structure
 
 ```
-├── train.py                  # Train V1/V2/V3 and evaluate on held-out compounds
+├── train.py                  # Train V1/V2/V3 with PIT or PhysicsPITLoss
+├── train_procedural.py       # Endless procedural random-multiplet training
+├── ablation.py               # Paired 3-arm ablation (pit vs physics vs control)
 ├── blind_test.py             # Novel-compound evaluation with baselines
-├── MixNet_Colab.ipynb        # One-click Colab run (setup, tests, training, blind test)
+├── MixNet_Colab.ipynb        # One-click Colab run (setup, training, blind test, ablation)
+├── MixNet_Procedural_Colab.ipynb # Procedural random multiplet Colab notebook
 ├── demo.py                   # CPU demonstration
-├── tests/                    # pytest suite
+├── tests/                    # 95 pytest suite (data, models, physics loss, ablation)
 ├── NMR_PROJECT_FINAL_PACKAGE/# 30 component spectra and the legacy fixed datasets
 ├── docs/                     # Literature and methodology notes
 ├── RESEARCH_PAPER_NOTES.md   # Research notes
 └── src/
-    ├── data/                 # synthetic.py (sampler), torch_dataset.py
+    ├── data/                 # synthetic.py, torch_dataset.py
     ├── models/               # blocks, V1, V2, V3, factory
-    ├── training/             # pit.py (loss), losses.py, metrics.py
-    └── evaluation/           # baselines.py, benchmark.py, visualize.py
+    ├── training/             # pit.py, physics.py (PhysicsPITLoss), losses.py, metrics.py
+    └── evaluation/           # ghost.py (spurious metrics), baselines.py, benchmark.py
 ```
 
 ---
@@ -88,10 +121,14 @@ cd nmr_deconvolution
 python -m venv venv && source venv/bin/activate   # Windows: .\venv\Scripts\activate
 pip install -r requirements.txt
 
+# Run all 95 tests
 pytest -q tests
-python train.py --model v1 --epochs 60 --patience 15
-python train.py --model v3 --epochs 60 --batch-size 2
-python blind_test.py --checkpoints checkpoints/best_v1.pth checkpoints/best_v3.pth --seeds 30
+
+# Train with Physics-Informed Loss
+python train.py --model v1 --loss physics_pit --lambda-sparse 0.05 --lambda-baseline-tv 0.01
+
+# Run paired ablation study
+python ablation.py --model v1 --epochs 40 --train-size 400
 ```
 
 ---

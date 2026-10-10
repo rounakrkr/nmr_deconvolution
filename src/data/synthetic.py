@@ -1,4 +1,5 @@
 import os
+from math import comb
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -91,18 +92,36 @@ class MixtureSampler:
         return {"mixtures": x, "compounds": s, "concentrations": a, "compound_ids": ids}
 
 
+def pascal_weights(n_lines: int) -> np.ndarray:
+    """Binomial (Pascal-triangle) line weights for a first-order multiplet, summing to 1."""
+    w = np.array([comb(n_lines - 1, k) for k in range(n_lines)], dtype=np.float64)
+    return w / w.sum()
+
+
 def lorentz_multiplet(ppm: np.ndarray, center: float, n_lines: int, j_hz: float,
-                      width_ppm: float, height: float, mhz: float = 400.0) -> np.ndarray:
+                      width_ppm: float, height: float, mhz: float = 400.0,
+                      binomial: bool = False) -> np.ndarray:
+    """
+    Sum of Lorentzian lines spaced by J. Default (binomial=False) gives every line
+    the same height, which is the legacy behaviour all existing benchmarks use.
+    With binomial=True the line heights follow Pascal's triangle (1:2:1, 1:3:3:1, ...),
+    as for a first-order multiplet. Total height (sum of line heights) is `height` either way.
+    """
     spacing = j_hz / mhz
     offsets = (np.arange(n_lines) - (n_lines - 1) / 2.0) * spacing
     out = np.zeros_like(ppm)
-    for off in offsets:
-        out += height / n_lines * (width_ppm / 2) ** 2 / ((ppm - center - off) ** 2 + (width_ppm / 2) ** 2)
+    if not binomial:   # legacy expression kept verbatim so default benchmarks stay bit-identical
+        for off in offsets:
+            out += height / n_lines * (width_ppm / 2) ** 2 / ((ppm - center - off) ** 2 + (width_ppm / 2) ** 2)
+        return out
+    for off, w in zip(offsets, pascal_weights(n_lines)):
+        out += height * w * (width_ppm / 2) ** 2 / ((ppm - center - off) ** 2 + (width_ppm / 2) ** 2)
     return out
 
 
 def make_unseen_library(
-    num: int = 5, length: int = SPECTRAL_LENGTH, seed: int = 0, width_ppm: float = 0.01
+    num: int = 5, length: int = SPECTRAL_LENGTH, seed: int = 0, width_ppm: float = 0.01,
+    binomial: bool = False,
 ) -> np.ndarray:
     """
     Novel compounds with random Lorentzian multiplets (J-couplings in Hz at 400 MHz),
@@ -121,6 +140,7 @@ def make_unseen_library(
                 j_hz=rng.uniform(5.0, 9.0),
                 width_ppm=width_ppm * rng.uniform(0.7, 1.5),
                 height=rng.uniform(0.3, 1.0),
+                binomial=binomial,
             )
         out[k] = s / s.max()
     return out
