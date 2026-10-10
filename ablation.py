@@ -104,13 +104,18 @@ def train_arm(arm: str, a: argparse.Namespace, library, pools, device, seed: int
         if hasattr(crit, "set_ramp"):
             crit.set_ramp(warmup_ramp(ep, a.physics_warmup_epochs))
         tr = run_epoch(model, tl, crit, device, opt)
+        if ep == 0 and len(tr) > 3:
+            terms_str = " | ".join(f"{k}: {v:.5f}" for k, v in tr.items() if k not in ("loss", "spec", "recon"))
+            if terms_str:
+                print(f"  [{arm}] epoch 1 physics terms -> {terms_str}", flush=True)
         if hasattr(crit, "set_ramp"):
             crit.set_ramp(1.0)      # validate at full weight so epochs are comparable
         va = run_epoch(model, vl, crit, device)
         sched.step()
-        improved = va["loss"] < best
+        val_metric = (va["spec"] + 0.5 * va["recon"]) if ("spec" in va and "recon" in va) else va["loss"]
+        improved = val_metric < best
         if improved:
-            best, best_epoch, stale = va["loss"], ep + 1, 0
+            best, best_epoch, stale = val_metric, ep + 1, 0
             best_state = copy.deepcopy(model.state_dict())
         else:
             stale += 1

@@ -29,7 +29,7 @@ def _peaks(x: np.ndarray, abs_height: float) -> np.ndarray:
 def ghost_metrics(
     true: np.ndarray,
     pred: np.ndarray,
-    tol_ppm: float = 0.02,
+    tol_ppm: float = 0.015,
     peak_height: float = 0.05,
     baseline_threshold: float = 0.02,
     baseline_margin_ppm: float = 0.06,
