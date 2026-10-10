@@ -228,6 +228,11 @@ def main(argv=None):
             per_arm[arm].append(per_sample_metrics(samples, lambda d: predict(model, d["mixtures"], device)))
             meta[arm].append({"seed": seed, "best_epoch": best_epoch, "epochs_run": len(history), "last_val": history[-1]["val"]})
             del model
+            # Save partial progress to disk so runs are preserved if interrupted
+            out_path = a.output or os.path.join(a.results_dir, f"ablation_{a.model}.json")
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            with open(out_path + ".partial", "w") as pf:
+                json.dump({"args": vars(a), "completed_meta": meta}, pf, indent=2)
 
     # pool seeds: concatenate per-sample arrays (paired across arms by construction: same samples, same seed order)
     pooled = {arm: {k: np.concatenate([r[k] for r in runs]) for k in METRICS} for arm, runs in per_arm.items()}
