@@ -41,6 +41,7 @@ sys.path.insert(0, ROOT)
 
 from src.data.synthetic import MixtureSampler, load_library, split_compounds
 from src.data.torch_dataset import SyntheticNMRDataset
+from src.evaluation.ablation_ckpt import load_runs, partial_path, run_key, save_run
 from src.evaluation.baselines import matched_correlation, nmf_separate, summarize
 from src.evaluation.benchmark import draw, predict
 from src.evaluation.ghost import ghost_metrics
@@ -211,6 +212,8 @@ def main(argv=None):
     g.add_argument("--physics-warmup-epochs", type=int, default=5)
     p.add_argument("--results-dir", default=os.path.join(ROOT, "results"))
     p.add_argument("--output", default=None, help="default: <results-dir>/ablation_<model>.json")
+    p.add_argument("--resume", action="store_true",
+                   help="reuse finished (arm, seed) runs from <output>.partial; refuses if settings differ")
     a = p.parse_args(argv)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -219,20 +222,33 @@ def main(argv=None):
     samples = draw(MixtureSampler(library, pools["test"], noise_std=a.noise, seed=3), a.test_size)
     print(f"device={device} model={a.model} arms={a.arms} seeds={a.seeds} test samples={len(samples)} (held-out compounds)")
 
+    out_path = a.output or os.path.join(a.results_dir, f"ablation_{a.model}.json")
+    ckpt = partial_path(out_path)
+    done: Dict[str, dict] = (load_runs(ckpt, vars(a)) or {}) if a.resume else {}
+    if done:
+        print(f"resuming: {len(done)} finished run(s) loaded from {ckpt}: {sorted(done)}", flush=True)
+
     per_arm: Dict[str, List[Dict[str, np.ndarray]]] = {arm: [] for arm in a.arms}   # one entry per seed
     meta: Dict[str, List[dict]] = {arm: [] for arm in a.arms}
     for seed in a.seeds:
         for arm in a.arms:
+            key = run_key(arm, seed)
+            if key in done:
+                print(f"\n=== arm={arm} seed={seed} === (reused from checkpoint)", flush=True)
+                per_arm[arm].append(done[key]["metrics"])
+                meta[arm].append(done[key]["meta"])
+                continue
             print(f"\n=== arm={arm} seed={seed} ===", flush=True)
             model, best_epoch, history = train_arm(arm, a, library, pools, device, seed)
-            per_arm[arm].append(per_sample_metrics(samples, lambda d: predict(model, d["mixtures"], device)))
-            meta[arm].append({"seed": seed, "best_epoch": best_epoch, "epochs_run": len(history), "last_val": history[-1]["val"]})
+            metrics = per_sample_metrics(samples, lambda d: predict(model, d["mixtures"], device))
+            run_meta = {"seed": seed, "best_epoch": best_epoch, "epochs_run": len(history), "last_val": history[-1]["val"]}
+            per_arm[arm].append(metrics)
+            meta[arm].append(run_meta)
             del model
-            # Save partial progress to disk so runs are preserved if interrupted
-            out_path = a.output or os.path.join(a.results_dir, f"ablation_{a.model}.json")
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
-            with open(out_path + ".partial", "w") as pf:
-                json.dump({"args": vars(a), "completed_meta": meta}, pf, indent=2)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            done[key] = {"metrics": metrics, "meta": run_meta}
+            save_run(ckpt, vars(a), done)      # atomic; per-sample metrics + meta, so nothing finished is ever lost
 
     # pool seeds: concatenate per-sample arrays (paired across arms by construction: same samples, same seed order)
     pooled = {arm: {k: np.concatenate([r[k] for r in runs]) for k in METRICS} for arm, runs in per_arm.items()}
@@ -253,7 +269,6 @@ def main(argv=None):
     if paired:
         print("\n" + format_paired(paired, baseline))
 
-    out_path = a.output or os.path.join(a.results_dir, f"ablation_{a.model}.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:
         json.dump({
