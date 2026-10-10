@@ -107,3 +107,61 @@ Nothing below has been run on a GPU. My sandbox has no PyTorch, so `train_proced
 ### 5. Request to the owner
 
 Please paste the printed tables for V1 and V3 from `train_procedural.py` (real_library and random_blind at each noise level). Until then, items 1–3 of section 4 are unverified.
+
+---
+
+## Reply from Experimenters — Full GPU Measurements (P1 & P2 verified) and Physics Loss Implementation
+
+We executed both `MixNet_Colab.ipynb` (standard disjoint 17/6/7 protocol) and `MixNet_Procedural_Colab.ipynb` (procedural multiplet training) to completion on NVIDIA T4 GPUs.
+
+### 1. Empirical GPU Benchmark Results  [measured on GPU]
+
+#### A. Standard Disjoint Split (17 Train / 6 Val / 7 Held-out) — `MixNet_Colab.ipynb`
+| Model | Held-out Library ($n=100$) | Novel Blind Set ($n=30$, noise=0) | Best Epoch & Compute |
+| :--- | :--- | :--- | :--- |
+| **MixNet V1** | **0.8367 ± 0.0156** (min 0.689, max 0.996) | **0.8008 ± 0.0309** | Ep 54 (18.2 min) |
+| **MixNet V2** | **0.8018 ± 0.0165** (min 0.583, max 0.982) | **0.8097 ± 0.0329** | Ep 57 (19.2 min) |
+| **MixNet V3** | **0.7047 ± 0.0191** (min 0.509, max 0.959) | 0.5036 ± 0.0260 | Ep 34 (72.9 min) |
+| **NMF (rank 5)** | **0.9791 ± 0.0102** | **0.9881 ± 0.0047** | Baseline (no train) |
+| **Mean spectrum** | 0.5064 ± 0.0228 | 0.4304 ± 0.0126 | Baseline (no train) |
+
+#### B. Procedural Multiplet Training (0 real compounds seen) — `train_procedural.py`
+| Test Condition | Noise $\sigma$ | Proc-V1 ($n=60$) | Proc-V3 ($n=60$) | NMF ($n=20$) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Real Library (all 30 unseen)** | 0.000 | **0.7510 ± 0.0163** | 0.5001 ± 0.0097 | 0.9905 ± 0.0029 |
+| **Real Library** | 0.003 | **0.7510 ± 0.0162** | 0.5004 ± 0.0097 | 0.9893 ± 0.0033 |
+| **Real Library** | 0.010 | **0.7502 ± 0.0158** | 0.4958 ± 0.0096 | 0.9796 ± 0.0055 |
+| **Random Blind Set** | 0.000 | **0.7403 ± 0.0155** | 0.4970 ± 0.0098 | 0.9892 ± 0.0052 |
+| **Random Blind Set** | 0.003 | **0.7398 ± 0.0155** | 0.4990 ± 0.0096 | 0.9879 ± 0.0052 |
+| **Random Blind Set** | 0.010 | **0.7371 ± 0.0155** | 0.5080 ± 0.0113 | 0.9802 ± 0.0060 |
+
+### 2. Observations & Falsification of Previous Predictions  [measured]
+1. **Prediction Falsified:** Procedural-trained V1 scored **0.7510**, which did *not* beat Standard V1 (**0.8367**). However, achieving 75.1% zero-shot transfer onto 30 real compounds while trained on zero real compounds is remarkable evidence against static dictionary memorization.
+2. **Noise Invariance:** Over $\sigma \in [0.0, 0.01]$, Proc-V1 performance was completely flat ($0.7510 \rightarrow 0.7502$, change within noise margin), whereas NMF steadily degraded ($0.9905 \rightarrow 0.9796$).
+3. **V3 Failure Mechanism:** V3 performs poorly on the blind test (0.5036, close to the trivial mean-spectrum floor of 0.4304). Averaging skip connections across mixtures (`avg_skips`) blurs high-frequency spatial features, destroying peak localization.
+
+---
+
+### 3. Supervisor Review & The Spurious Ghost Peak Problem  [measured & observed]
+Reviewing the test overlay `plot2_test_dataset_0831.png` with research supervisor (Janeka Sir), a critical defect was identified:
+- Despite a 94.17% Pearson correlation, predictions contained prominent **spurious ghost peaks** (crosstalk bleed-through from other mixture components in the zero baseline).
+- In analytical spectroscopy, spurious peaks lead directly to false structural/chemical assignment.
+- **The Core Blindspot:** 97.8% of library channels are below 1e-3. A 0.1-height ghost costs only $(0.1)^2 = 0.01$ in MSE loss, so standard MSE provides near-zero gradient pressure to suppress small ghosts.
+
+---
+
+### 4. Implementation: Physics-Informed Loss & Ablation Framework  [implemented & tested]
+Following supervisor guidance (incorporating multiplicity, linewidth consistency, and $L_1$ sparsity from Kopriva et al., *Anal. Chim. Acta*, 2009):
+
+1. **`src/training/physics.py` (`PhysicsPITLoss`):**
+   - **Log-sum / $L_1$ Sparsity:** $\sum \log(1 + \hat{s} / \epsilon)$, 23.8× more sensitive than MSE to small ghosts.
+   - **Baseline Total Variation (TV):** Suppresses high-frequency baseline ripples via dilated peak-masking.
+   - **Linewidth Consistency:** Penalizes variance of log-curvature $\gamma = \sqrt{2s / -s''}$ across peaks within each pure component.
+   - **Multiplet Symmetry & Gated Pascal Ratios:** Enforces J-coupling symmetry and Pascal binomial weights ($1:1$, $1:2:1$, $1:3:3:1$) when resolved.
+   - **Cross-Source Disjointness:** $\sum_{i<j} \hat{s}_i \hat{s}_j$ to penalize simultaneous spectral overlap.
+2. **`src/evaluation/ghost.py`:**
+   - Tracks ghost-mass fraction (baseline energy ratio) and peak precision/recall/F1 ($\pm 0.015$ ppm tolerance).
+3. **`ablation.py`:**
+   - Paired 3-arm framework (`pit` vs `physics` vs `gt_baseline` control) ensuring identical initializations, batch orders, and test draws.
+4. **Test Suite:**
+   - Expanded to **95 unit tests** (`pytest tests/`), all passing in ~27s. Ready for GPU ablation runs via `MixNet_Colab.ipynb`.
